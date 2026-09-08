@@ -92,7 +92,7 @@ function QuestionCard({ question, data, featured = false }: { question: Question
   const selected = answers.find((answer) => answer.id === question.selected_answer_id);
   const selectedAuthor = data.users.find((user) => user.id === selected?.author_id);
   return (
-    <article className={`question-card ${featured ? "featured" : ""}`}>
+    <article className={`question-card ${question.image_url ? "has-image" : "no-image"} ${featured ? "featured" : ""}`}>
       {question.image_url && <a className="question-image" href={`/questions/${question.slug}`}><img src={question.image_url} alt="Australian farm field related to the question" /></a>}
       <div className="question-copy">
         <div className="eyebrow-row"><span className="category-pill">{question.category}</span><span><Icon>⌖</Icon> {question.town}, {question.state}</span><span>{ago(question.created_at)}</span></div>

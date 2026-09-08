@@ -27,8 +27,19 @@ test("keeps durable state and media on platform bindings", async () => {
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/community/route.ts", import.meta.url), "utf8"),
   ]);
-  assert.deepEqual(JSON.parse(hosting), { d1: "DB", r2: "MEDIA" });
+  const bindings = JSON.parse(hosting);
+  assert.equal(bindings.d1, "DB");
+  assert.equal(bindings.r2, "MEDIA");
   assert.match(schema, /xp_events/);
   assert.match(api, /Only the question author can choose the best answer/);
   assert.match(api, /You cannot vote on your own answer/);
+});
+
+test("text-only question cards do not reserve an empty image column", async () => {
+  const [community, styles] = await Promise.all([
+    readFile(new URL("../app/community.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(community, /question\.image_url \? "has-image" : "no-image"/);
+  assert.match(styles, /\.question-card\.no-image\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 });
