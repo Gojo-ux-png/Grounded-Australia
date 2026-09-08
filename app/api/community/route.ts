@@ -1,4 +1,4 @@
-import { database, DEMO_USERS, ensureCommunityDatabase, parseDemoUser, snapshot } from "@/db/community";
+import { createSession, currentUserId, database, ensureCommunityDatabase, hashPassword, newPasswordSalt, passwordMatches, revokeSession, snapshot } from "@/db/community";
 
 const CATEGORIES = ["Crops", "Livestock", "Soil", "Water", "Technology", "Business"];
 const STATES = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
@@ -29,6 +29,15 @@ function slugify(title: string) {
   return `${base}-${Date.now().toString(36)}`;
 }
 
+function accountHandle(name: string) {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28) || "member";
+  return `${base}-${crypto.randomUUID().slice(0, 6)}`;
+}
+
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
+
 function error(message: string, status = 400) {
   return Response.json({ error: message }, { status });
 }
@@ -49,13 +58,48 @@ export async function POST(request: Request) {
     const action = clean(body.action, 40);
     const db = database();
 
-    if (action === "setIdentity") {
-      const userId = clean(body.userId, 40);
-      if (userId && !DEMO_USERS.includes(userId as (typeof DEMO_USERS)[number])) return error("Unknown demo account.");
-      const response = Response.json({ ok: true, userId: userId || null });
-      response.headers.append("Set-Cookie", userId
-        ? `demo_user_id=${userId}; Path=/; Max-Age=604800; SameSite=Lax; HttpOnly`
-        : "demo_user_id=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly");
+    if (action === "signUp") {
+      const name = clean(body.name, 80);
+      const email = clean(body.email, 180).toLowerCase();
+      const password = typeof body.password === "string" ? body.password : "";
+      const state = clean(body.state, 3);
+      const town = clean(body.town, 80);
+      if (name.length < 2) return error("Enter your full name.");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return error("Enter a valid email address.");
+      if (password.length < 10 || password.length > 128) return error("Use a password between 10 and 128 characters.");
+      if (!STATES.includes(state) || !town) return error("Choose a valid state and nearest town.");
+      if (await db.prepare("SELECT 1 FROM accounts WHERE email = ?").bind(email).first()) return error("An account already exists for this email.", 409);
+      const userId = `user-${crypto.randomUUID()}`;
+      const handle = accountHandle(name);
+      const salt = newPasswordSalt();
+      const passwordHash = await hashPassword(password, salt);
+      await db.batch([
+        db.prepare("INSERT INTO users (id,handle,name,initials,role,verified,state,town,bio,specialties) VALUES (?,?,?,?,?,?,?,?,?,?)")
+          .bind(userId, handle, name, initials(name), "Beginner", 0, state, town, "New to Grounded Australia and ready to share practical field experience.", "Building field knowledge"),
+        db.prepare("INSERT INTO accounts (user_id,email,password_hash,password_salt) VALUES (?,?,?,?)")
+          .bind(userId, email, passwordHash, salt),
+      ]);
+      const response = Response.json({ ok: true, handle }, { status: 201 });
+      response.headers.append("Set-Cookie", await createSession(userId, request));
+      return response;
+    }
+
+    if (action === "signIn") {
+      const email = clean(body.email, 180).toLowerCase();
+      const password = typeof body.password === "string" ? body.password : "";
+      const account = await db.prepare("SELECT user_id,password_hash,password_salt FROM accounts WHERE email = ?").bind(email)
+        .first<{ user_id: string; password_hash: string; password_salt: string }>();
+      if (!account || !(await passwordMatches(password, account.password_salt, account.password_hash))) return error("Email or password is incorrect.", 401);
+      const user = await db.prepare("SELECT handle FROM users WHERE id = ?").bind(account.user_id).first<{ handle: string }>();
+      const response = Response.json({ ok: true, handle: user?.handle });
+      response.headers.append("Set-Cookie", await createSession(account.user_id, request));
+      return response;
+    }
+
+    if (action === "signOut") {
+      const response = Response.json({ ok: true });
+      response.headers.append("Set-Cookie", await revokeSession(request));
+      response.headers.append("Set-Cookie", "demo_user_id=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly");
       return response;
     }
 
@@ -66,8 +110,8 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    const actor = parseDemoUser(request);
-    if (!actor) return error("Choose a demo identity to take part.", 401);
+    const actor = await currentUserId(request);
+    if (!actor) return error("Sign in to take part.", 401);
 
     if (action === "ask") {
       const title = clean(body.title, 160);

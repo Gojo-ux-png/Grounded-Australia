@@ -1,13 +1,11 @@
 import { env } from "cloudflare:workers";
-import { DEMO_USERS, parseDemoUser } from "@/db/community";
+import { currentUserId } from "@/db/community";
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export async function POST(request: Request) {
-  const actor = parseDemoUser(request);
-  if (!actor || !DEMO_USERS.includes(actor as (typeof DEMO_USERS)[number])) {
-    return Response.json({ error: "Choose a demo identity to upload an image." }, { status: 401 });
-  }
+  const actor = await currentUserId(request);
+  if (!actor) return Response.json({ error: "Sign in to upload an image." }, { status: 401 });
   const form = await request.formData();
   const file = form.get("image");
   if (!(file instanceof File) || !file.type.startsWith("image/") || file.size > MAX_IMAGE_BYTES) {

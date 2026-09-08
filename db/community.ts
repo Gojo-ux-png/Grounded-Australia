@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 
-export const DEMO_USERS = ["farmer-ella", "grower-tom", "expert-priya"] as const;
+const SESSION_COOKIE = "grounded_session";
+const SESSION_SECONDS = 60 * 60 * 24 * 30;
+const encoder = new TextEncoder();
 
 function db() {
   if (!env.DB) throw new Error("Community database is unavailable.");
@@ -9,6 +11,8 @@ function db() {
 
 const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, name TEXT NOT NULL, initials TEXT NOT NULL, role TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, town TEXT NOT NULL, bio TEXT NOT NULL, specialties TEXT NOT NULL, years INTEGER NOT NULL DEFAULT 0, xp INTEGER NOT NULL DEFAULT 0, followers INTEGER NOT NULL DEFAULT 0, following INTEGER NOT NULL DEFAULT 0, base_likes INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS accounts (user_id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+  `CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, author_id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, category TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL, town TEXT NOT NULL, image_url TEXT, video_url TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, views INTEGER NOT NULL DEFAULT 0, selected_answer_id INTEGER)`,
   `CREATE TABLE IF NOT EXISTS answers (id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, author_id TEXT NOT NULL, body TEXT NOT NULL, citation_url TEXT, product_name TEXT, commercial INTEGER NOT NULL DEFAULT 0, image_url TEXT, base_score INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, answer_id INTEGER NOT NULL, author_id TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
@@ -21,6 +25,8 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS questions_created_idx ON questions(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS answers_question_idx ON answers(question_id)`,
   `CREATE INDEX IF NOT EXISTS comments_answer_idx ON comments(answer_id)`,
+  `CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`,
+  `CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at)`,
 ];
 
 const seedStatements = [
@@ -57,10 +63,70 @@ function rows<T>(result: D1Result<T>) {
   return result.results ?? [];
 }
 
-export function parseDemoUser(request: Request) {
+function cookieValue(request: Request, name: string) {
   const cookie = request.headers.get("cookie") ?? "";
-  const value = cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith("demo_user_id="))?.split("=")[1];
-  return DEMO_USERS.includes(value as (typeof DEMO_USERS)[number]) ? value! : null;
+  return cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1) || null;
+}
+
+function bytesToHex(bytes: Uint8Array) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomHex(length: number) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytesToHex(bytes);
+}
+
+async function sha256(value: string) {
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value))));
+}
+
+export async function hashPassword(password: string, salt: string) {
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", iterations: 150_000, salt: encoder.encode(salt) }, key, 256);
+  return bytesToHex(new Uint8Array(bits));
+}
+
+export function newPasswordSalt() {
+  return randomHex(16);
+}
+
+export async function passwordMatches(password: string, salt: string, expected: string) {
+  const actual = await hashPassword(password, salt);
+  if (actual.length !== expected.length) return false;
+  let difference = 0;
+  for (let index = 0; index < actual.length; index += 1) difference |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
+  return difference === 0;
+}
+
+export async function currentUserId(request: Request) {
+  await ensureCommunityDatabase();
+  const token = cookieValue(request, SESSION_COOKIE);
+  if (!token) return null;
+  const id = await sha256(token);
+  const session = await db().prepare("SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?")
+    .bind(id, new Date().toISOString()).first<{ user_id: string }>();
+  return session?.user_id ?? null;
+}
+
+export async function createSession(userId: string, request: Request) {
+  const token = randomHex(32);
+  const id = await sha256(token);
+  const expiresAt = new Date(Date.now() + SESSION_SECONDS * 1000).toISOString();
+  await db().batch([
+    db().prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(new Date().toISOString()),
+    db().prepare("INSERT INTO sessions (id,user_id,expires_at) VALUES (?,?,?)").bind(id, userId, expiresAt),
+  ]);
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${SESSION_SECONDS}; SameSite=Lax; HttpOnly${secure}`;
+}
+
+export async function revokeSession(request: Request) {
+  const token = cookieValue(request, SESSION_COOKIE);
+  if (token) await db().prepare("DELETE FROM sessions WHERE id = ?").bind(await sha256(token)).run();
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure}`;
 }
 
 export async function snapshot(request: Request) {
@@ -78,7 +144,7 @@ export async function snapshot(request: Request) {
   ]);
 
   return {
-    currentUserId: parseDemoUser(request),
+    currentUserId: await currentUserId(request),
     users: rows(userRows),
     questions: rows(questionRows).map((question: Record<string, unknown>) => ({
       ...question,
