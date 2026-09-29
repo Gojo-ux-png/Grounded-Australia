@@ -23,7 +23,8 @@ test('Supabase release keeps storage private by configuration and explicitly clo
  const config=structuredClone(source),env=config.env.production;
  env.vars.SUPABASE_URL='https://grounded-test.supabase.co';env.vars.SUPABASE_STORAGE_BUCKET='grounded-australia-production';env.r2_buckets=[];env.vars.REGISTRATION_OPEN='false';env.vars.EMAIL_FROM='';env.send_email=[];
  assert.equal(validateConfig(config,'production'),env);
- env.vars.REGISTRATION_OPEN='true';assert.throws(()=>validateConfig(config,'production'),/EMAIL_FROM/);
+ env.vars.TURNSTILE_SITE_KEY='';assert.equal(validateConfig(config,'production'),env);
+ env.vars.TURNSTILE_SITE_KEY='real-site-key';env.vars.REGISTRATION_OPEN='true';assert.throws(()=>validateConfig(config,'production'),/EMAIL_FROM/);
  env.vars.EMAIL_FROM='hello@grounded.test';assert.throws(()=>validateConfig(config,'production'),/EMAIL binding/);
  env.send_email=[{name:'EMAIL'}];assert.equal(validateConfig(config,'production'),env);
  env.vars.SUPABASE_URL='https://attacker.test';assert.throws(()=>validateConfig(config,'production'),/SUPABASE_URL/);

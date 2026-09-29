@@ -29,7 +29,8 @@ export function validateConfig(config,environment) {
     if(!/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(target.vars.EMAIL_FROM || '') || target.vars.EMAIL_FROM.endsWith('@example.com'))throw new Error('Set EMAIL_FROM to an address on your verified sending domain.');
     if(!target.send_email?.some(b=>b.name==='EMAIL'))throw new Error('Missing EMAIL binding.');
   }
-  if(!target.vars.TURNSTILE_SITE_KEY || target.vars.TURNSTILE_SITE_KEY.includes('REPLACE') || /^[123]x0{10}/.test(target.vars.TURNSTILE_SITE_KEY))throw new Error('Set a real Turnstile site key, not a test key.');
+  const turnstileSiteKey=target.vars.TURNSTILE_SITE_KEY || '';
+  if((target.vars.REGISTRATION_OPEN==='true' || turnstileSiteKey) && (!turnstileSiteKey || turnstileSiteKey.includes('REPLACE') || /^[123]x0{10}/.test(turnstileSiteKey)))throw new Error('Set a real Turnstile site key, not a test key.');
   for(const name of ['READ_LIMITER','AUTH_LIMITER','WRITE_LIMITER','UPLOAD_LIMITER'])if(!target.ratelimits?.some(b=>b.name===name && b.simple.limit>0 && b.simple.limit<10000))throw new Error(`Configure ${name}.`);
   return target;
 }

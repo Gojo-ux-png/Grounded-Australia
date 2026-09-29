@@ -1,16 +1,18 @@
 # Grounded Australia：Cloudflare 预览版
 
-当前发布方案：**Cloudflare Workers + D1 + Supabase Storage**。R2 不需要开通。本次发布按用户选择先开放浏览，关闭新用户注册及账号邮件，完成发信配置后再开放注册。当前账号为 Workers Free，生产预览不设置自定义 CPU 上限。开放使用 scrypt 的账号流程前，还需确认计算额度；不要降低密码安全参数来适配免费额度。
+当前发布方案：**Cloudflare Workers + D1 访客预览**。新账号尚未启用 R2，也未配置 Turnstile 和账号邮件，因此直接上传、登录及注册明确关闭；不要用测试密钥或降低密码安全参数绕过这些限制。
 
 ## 资源与数据
 
-- Worker：`grounded-australia`，目标地址 `https://grounded-australia.pathfive.workers.dev`。
-- D1：`grounded-australia-production`。六个迁移已应用（含积分兑换及商品版本迁移）。首轮上线为空库，随后按用户要求导入下述演示内容；不导入登录凭据。
-- 图片：现有 Supabase 项目 `cdqmopqvkxiishjmabmz` 中独立的私有桶 `grounded-australia-production`。这与 Stepfolk 使用同一个 Supabase 项目，但不共用其 `community-media` 桶。服务密钥仍具有该 Supabase 项目的管理权限，应仅存于 Worker secret。
-- Turnstile：真实生产 widget，仅允许目标网站域名。
+- Worker：`grounded-australia`，目标地址 `https://grounded-australia.grounded-au.workers.dev`。
+- D1：新账号内的 `grounded-australia-production`，区域提示为 Oceania。六个迁移已应用，随后导入下述演示内容；不导入登录凭据。
+- 图片：当前生产环境不绑定 R2 或 Supabase Storage；外链示例图片仍可显示，直接上传返回明确的不可用提示。
+- Turnstile：当前未配置，因此账号入口隐藏，认证 API 保持不可用。
 - 本地仍使用模拟 D1/R2，不发送真实邮件；预发布配置保持单独资源。
 
-私有桶限制为 JPEG、PNG、WebP，最大 5 MiB。应用检查登录、已验证邮箱、文件签名、每日配额及对象归属。读取先查询 D1 中内容可见性，再由 Worker 读取 Supabase 并流式返回；不公开 bucket URL 或签名链接。响应为 `private, no-store`，包含 `nosniff` 和 sandbox CSP，使审核下架后下一次媒体请求重新检查权限。
+2026-09-29 已在全新 Cloudflare 账号发布版本 `5aad4424-6e08-4b63-8231-4efb94b9b49f`。部署前创建并备份独立 D1，应用全部迁移，并导入 5 个明确标注的 Demo 用户、5 个问题、4 个回答和 2 条评论；没有账号凭据或人工认证标记。线上健康检查、主页、社区接口和访客账号页均返回 200，并保持 `noindex, nofollow`。
+
+启用私有存储后，桶应限制为 JPEG、PNG、WebP，最大 5 MiB。应用会检查登录、已验证邮箱、文件签名、每日配额及对象归属。读取先查询 D1 中内容可见性，再由 Worker 流式返回；不公开 bucket URL 或签名链接。响应为 `private, no-store`，包含 `nosniff` 和 sandbox CSP，使审核下架后下一次媒体请求重新检查权限。
 
 Supabase 控制台创建桶时设置 `public=false`、最大文件大小 `5242880`，允许类型为 `image/jpeg,image/png,image/webp`。不要添加允许匿名或普通用户直接访问该桶的 Storage RLS 策略。现代 `sb_secret_` 密钥仅通过 `apikey` 发送；旧 service-role JWT 兼容 `apikey` 和 Bearer。
 
@@ -24,12 +26,12 @@ Supabase 控制台创建桶时设置 `public=false`、最大文件大小 `524288
 |---|---|
 | `APP_ENV` | `production` |
 | `SITE_URL` | 实际 HTTPS origin，不含路径 |
-| `SUPABASE_URL` | 已确认的 Supabase 项目 HTTPS 地址 |
-| `SUPABASE_STORAGE_BUCKET` | 此环境独立的 Grounded 图片桶 |
+| `SUPABASE_URL` | 空字符串；当前未启用直接上传 |
+| `SUPABASE_STORAGE_BUCKET` | 空字符串；当前未启用直接上传 |
 | `r2_buckets` | `[]`，不绑定 R2 |
 | `REGISTRATION_OPEN` | `false`，API 拒绝注册，页面显示预览说明 |
 | `send_email` / `EMAIL_FROM` | 空数组 / 空字符串，当前不发送账号邮件 |
-| `TURNSTILE_SITE_KEY` | 公开 site key |
+| `TURNSTILE_SITE_KEY` | 空字符串；账号入口关闭 |
 
 仅将密钥写入 Cloudflare secret：
 

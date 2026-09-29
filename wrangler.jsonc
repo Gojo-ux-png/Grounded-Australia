@@ -157,18 +157,18 @@
       "preview_urls": false,
       "vars": {
         "APP_ENV": "production",
-        "SITE_URL": "https://grounded-australia.pathfive.workers.dev",
+        "SITE_URL": "https://grounded-australia.grounded-au.workers.dev",
         "EMAIL_FROM": "",
-        "TURNSTILE_SITE_KEY": "0x4AAAAAAEz3unj9ZHCoDjRg",
-        "SUPABASE_URL": "https://cdqmopqvkxiishjmabmz.supabase.co",
-        "SUPABASE_STORAGE_BUCKET": "grounded-australia-production",
+        "TURNSTILE_SITE_KEY": "",
+        "SUPABASE_URL": "",
+        "SUPABASE_STORAGE_BUCKET": "",
         "REGISTRATION_OPEN": "false"
       },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "grounded-australia-production",
-          "database_id": "d40b9811-f6b9-4696-b3d3-9a700e86f1f5",
+          "database_id": "07e5e9dc-de7a-49d9-870b-e7b46a1db2e6",
           "migrations_dir": "drizzle"
         }
       ],
@@ -215,5 +215,5 @@
       }
     }
   },
-  "account_id": "1eed1d5df5141a213c3b400caf572239"
+  "account_id": "101c4531ddfeeedb05e3d74074d2071c"
 }

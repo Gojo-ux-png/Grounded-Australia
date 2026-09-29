@@ -14,3 +14,10 @@ INSERT OR IGNORE INTO answers (id,question_id,author_id,body,base_score,created_
 INSERT OR IGNORE INTO answers (id,question_id,author_id,body,base_score,created_at) VALUES (4,2,'expert-priya','Keep the vet visit as the priority. Before they arrive, record rectal temperature, hydration, nursing behaviour and exactly which mobs and pens each calf has used. Fresh faecal samples from untreated calves are more useful than samples after medication. Use separate boots and feeding gear for the isolated pair.',27,'2026-09-05 04:05:00');
 INSERT OR IGNORE INTO comments (id,answer_id,author_id,body,created_at) VALUES (1,1,'farmer-ella','This is exactly the sequence I needed. I can split the samples by the low runs and shoulders tomorrow.','2026-09-03 10:20:00');
 INSERT OR IGNORE INTO comments (id,answer_id,author_id,body,created_at) VALUES (2,3,'grower-tom','Good point on landscape position. Our first grid blurred the seep line completely.','2026-09-05 03:11:00');
+UPDATE users SET demo=1,verified=0,role='Farmer',xp=0,followers=0,following=0,base_likes=0,categories='["Crops"]',service_states='["VIC"]' WHERE id='farmer-ella';
+UPDATE users SET demo=1,verified=0,role='Farmer',xp=0,followers=0,following=0,base_likes=0,categories='["Soil"]',service_states='["NSW"]' WHERE id='grower-tom';
+UPDATE users SET demo=1,verified=0,role='Farmer',xp=0,followers=0,following=0,base_likes=0,categories='["Livestock"]',service_states='["TAS"]' WHERE id='farmer-jack';
+UPDATE users SET demo=1,verified=0,role='Agricultural professional',xp=0,followers=0,following=0,base_likes=0,categories='["Crops"]',service_states='["QLD"]' WHERE id='expert-priya';
+UPDATE users SET demo=1,verified=0,role='Agricultural professional',xp=0,followers=0,following=0,base_likes=0,categories='["Soil"]',service_states='["SA"]' WHERE id='expert-mei';
+UPDATE questions SET views=0 WHERE id IN (1,2,3,4,5);
+UPDATE answers SET base_score=0 WHERE id IN (1,2,3,4);

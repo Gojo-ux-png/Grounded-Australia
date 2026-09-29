@@ -9,7 +9,7 @@ export default {
       const origin = new URL(env.SITE_URL);
       if (local && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return new Response("Deployment is not configured.", { status: 503 });
       if (!local) {
-        if (origin.protocol !== "https:" || origin.hostname === "example.com" || origin.hostname.endsWith(".example.com") || !env.TURNSTILE_SECRET_KEY) return new Response("Deployment is not configured.", { status: 503 });
+        if (origin.protocol !== "https:" || origin.hostname === "example.com" || origin.hostname.endsWith(".example.com") || (env.TURNSTILE_SITE_KEY && !env.TURNSTILE_SECRET_KEY)) return new Response("Deployment is not configured.", { status: 503 });
         if (url.origin !== origin.origin) {
           if (["GET", "HEAD"].includes(request.method)) { const target=new URL(origin);target.pathname=url.pathname;target.search=url.search;return Response.redirect(target,308); }
           return new Response("Use the configured site address.", { status: 421 });

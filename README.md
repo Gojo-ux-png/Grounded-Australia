@@ -4,9 +4,9 @@ An Australian agriculture Q&A community built with Vinext, React, local Cloudfla
 
 ## Cloudflare release
 
-The online preview uses Cloudflare Workers + D1 + Supabase Storage, with a dedicated private Grounded bucket. R2 is only used by the local preview. New registrations and account emails are closed until the sending domain is configured. See the [deployment guide (中文)](docs/cloudflare-deployment.md) for release commands, credentials, storage isolation and how to open registrations.
+The online preview uses Cloudflare Workers + D1 in guest mode. New registrations, account access, email and direct photo uploads remain closed until Turnstile, email and private storage are configured. See the [deployment guide (中文)](docs/cloudflare-deployment.md) for release commands and how to enable those capabilities.
 
-Preview: [Grounded Australia](https://grounded-australia.pathfive.workers.dev/).
+Preview: [Grounded Australia](https://grounded-australia.grounded-au.workers.dev/).
 
 The preview includes 5 clearly labeled demo profiles, 5 questions, 4 answers and 2 comments. Demo profiles have no login credentials or expert verification. Hosted demo content is hidden when registration opens.
 
