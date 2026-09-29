@@ -15,6 +15,34 @@
       "when": 1788868179436,
       "tag": "0001_robust_frog_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789384664459,
+      "tag": "0002_many_venus",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789390788788,
+      "tag": "0003_far_cassandra_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789400945081,
+      "tag": "0004_rewards",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789401230439,
+      "tag": "0005_reward_revision",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,7 @@
+import { uploadsEnabled } from "@/app/lib/media-storage";
 import { env } from "cloudflare:workers";
+import { scrypt, timingSafeEqual } from "node:crypto";
+import { isLocal, RequestError } from "@/app/lib/runtime";
 
 const SESSION_COOKIE = "grounded_session";
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
@@ -7,56 +10,6 @@ const encoder = new TextEncoder();
 function db() {
   if (!env.DB) throw new Error("Community database is unavailable.");
   return env.DB;
-}
-
-const schemaStatements = [
-  `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE, name TEXT NOT NULL, initials TEXT NOT NULL, role TEXT NOT NULL, verified INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL, town TEXT NOT NULL, bio TEXT NOT NULL, specialties TEXT NOT NULL, years INTEGER NOT NULL DEFAULT 0, xp INTEGER NOT NULL DEFAULT 0, followers INTEGER NOT NULL DEFAULT 0, following INTEGER NOT NULL DEFAULT 0, base_likes INTEGER NOT NULL DEFAULT 0)`,
-  `CREATE TABLE IF NOT EXISTS accounts (user_id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, password_salt TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS questions (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, author_id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, category TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL, town TEXT NOT NULL, image_url TEXT, video_url TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, views INTEGER NOT NULL DEFAULT 0, selected_answer_id INTEGER)`,
-  `CREATE TABLE IF NOT EXISTS answers (id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, author_id TEXT NOT NULL, body TEXT NOT NULL, citation_url TEXT, product_name TEXT, commercial INTEGER NOT NULL DEFAULT 0, image_url TEXT, base_score INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, answer_id INTEGER NOT NULL, author_id TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS votes (user_id TEXT NOT NULL, answer_id INTEGER NOT NULL, value INTEGER NOT NULL CHECK(value IN (-1, 1)), PRIMARY KEY(user_id, answer_id))`,
-  `CREATE TABLE IF NOT EXISTS bookmarks (user_id TEXT NOT NULL, question_id INTEGER NOT NULL, PRIMARY KEY(user_id, question_id))`,
-  `CREATE TABLE IF NOT EXISTS question_follows (user_id TEXT NOT NULL, question_id INTEGER NOT NULL, PRIMARY KEY(user_id, question_id))`,
-  `CREATE TABLE IF NOT EXISTS invitations (id INTEGER PRIMARY KEY AUTOINCREMENT, question_id INTEGER NOT NULL, inviter_id TEXT NOT NULL, expert_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(question_id, inviter_id, expert_id))`,
-  `CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id TEXT NOT NULL, target_type TEXT NOT NULL, target_id INTEGER NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
-  `CREATE TABLE IF NOT EXISTS xp_events (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, kind TEXT NOT NULL, related_id INTEGER NOT NULL, points INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, kind, related_id))`,
-  `CREATE INDEX IF NOT EXISTS questions_created_idx ON questions(created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS answers_question_idx ON answers(question_id)`,
-  `CREATE INDEX IF NOT EXISTS comments_answer_idx ON comments(answer_id)`,
-  `CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`,
-  `CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at)`,
-];
-
-const seedStatements = [
-  `INSERT OR IGNORE INTO users VALUES ('farmer-ella','ella-murray','Ella Murray','EM','Farmer',0,'VIC','Shepparton','Third-generation orchardist learning to adapt a mixed pear and apple block to hotter summers.','Orchards, irrigation, farm succession',8,38,146,62,84)`,
-  `INSERT OR IGNORE INTO users VALUES ('grower-tom','tom-brennan','Tom Brennan','TB','Experienced Contributor',0,'NSW','Dubbo','Mixed farmer. I share what has worked, what has failed, and the numbers in between.','Soil health, winter cereals, machinery',17,186,391,118,628)`,
-  `INSERT OR IGNORE INTO users VALUES ('expert-priya','dr-priya-nair','Dr Priya Nair','PN','Expert',1,'QLD','Toowoomba','Independent agronomist working across the Darling Downs and northern New South Wales.','Plant pathology, pulses, integrated pest management',14,428,812,204,1384)`,
-  `INSERT OR IGNORE INTO users VALUES ('farmer-jack','jack-wilson','Jack Wilson','JW','Experienced Contributor',0,'TAS','Smithton','Dairy farmer focused on pasture utilisation and practical herd health.','Dairy, pasture, animal health',21,244,510,177,911)`,
-  `INSERT OR IGNORE INTO users VALUES ('expert-mei','mei-chen','Mei Chen','MC','Expert',1,'SA','Murray Bridge','Soil scientist helping dryland growers make better decisions with less guesswork.','Soil chemistry, salinity, nutrient management',12,365,730,193,1192)`,
-  `INSERT OR IGNORE INTO questions (id,slug,author_id,title,body,category,tags,state,town,image_url,created_at,views,selected_answer_id) VALUES (1,'yellowing-wheat-after-wet-july','farmer-ella','Why is my wheat yellowing after a wet July — nitrogen loss or root disease?','The lower leaves are paling first across a 22-hectare paddock. We had 118 mm in July on a heavy clay loam, followed by two cold weeks. The crop is Scepter at GS30. Urea went out pre-sowing at 80 kg/ha. The yellowing is worse in shallow depressions but there are no obvious lesions on the crown. I can get a tissue test next week — what would you check first, and is a late nitrogen pass still worth considering?','Crops','["wheat","nitrogen","waterlogging"]','VIC','Horsham','https://images.unsplash.com/photo-1500937386664-56d1dfef3854?auto=format&fit=crop&w=1600&q=84','2026-09-03 06:25:00',1248,1)`,
-  `INSERT OR IGNORE INTO questions (id,slug,author_id,title,body,category,tags,state,town,image_url,created_at,views,selected_answer_id) VALUES (2,'calf-scours-after-paddock-change','farmer-jack','Calves developed scours after moving paddocks — where should I start?','Six of 42 calves are loose and two are dull, 48 hours after moving onto the river flat. They are 5–7 weeks old and still with their dams. Water trough was cleaned before the move. I have isolated the dull calves and called our vet. What observations or samples will be most useful before they arrive?','Livestock','["calves","scours","biosecurity"]','TAS','Smithton','https://images.unsplash.com/photo-1652439830186-2246dcd2442c?auto=format&fit=crop&w=1600&q=84','2026-09-05 02:40:00',684,NULL)`,
-  `INSERT OR IGNORE INTO questions (id,slug,author_id,title,body,category,tags,state,town,created_at,views,selected_answer_id) VALUES (3,'saline-patch-expanding-barley','grower-tom','A saline patch is expanding through my barley — what can I learn before summer?','The bare area has roughly doubled in three seasons and sits below a long slope. EC readings are patchy. I want to use this season to map the problem properly before deciding on drainage or a pasture phase.','Soil','["salinity","barley","soil-testing"]','SA','Murray Bridge','2026-09-04 23:10:00',391,3)`,
-  `INSERT OR IGNORE INTO questions (id,slug,author_id,title,body,category,tags,state,town,created_at,views,selected_answer_id) VALUES (4,'low-cost-frost-monitoring-orchard','farmer-ella','What is a reliable low-cost frost monitoring setup for a small orchard?','I need alerts that still work when mobile reception drops out. The block has power at the pump shed but not at the low point where frost settles. Interested in setups people have actually run for more than one winter.','Technology','["frost","sensors","orchard"]','VIC','Shepparton','2026-09-01 21:15:00',219,NULL)`,
-  `INSERT OR IGNORE INTO questions (id,slug,author_id,title,body,category,tags,state,town,created_at,views,selected_answer_id) VALUES (5,'cover-crop-before-summer-sorghum','grower-tom','Which cover crop mix leaves enough water for summer sorghum?','Looking for experiences from the Liverpool Plains after a wet finish. Biomass is useful, but stored moisture is the priority.','Crops','["cover-crops","sorghum","moisture"]','NSW','Gunnedah','2026-08-29 03:20:00',512,NULL)`,
-  `INSERT OR IGNORE INTO answers (id,question_id,author_id,body,citation_url,base_score,created_at) VALUES (1,1,'expert-priya','The paddock pattern points first to transient waterlogging and nitrogen movement, but do not rule out crown disease from appearance alone. Dig plants from the yellow edge and a healthy area, wash the roots, and compare root volume and crown colour. Send paired plant and 0–30 cm soil samples so the lab result has a useful control. At GS30, a modest nitrogen correction can still protect tiller survival if the root system is active. I would wait for two drying days, then use a small strip to compare 25–35 kg N/ha before treating the whole paddock. Avoid traffic through the depressions while the clay is plastic.','https://www.agriculture.gov.au/agriculture-land/farm-food-drought/crops/wheat',46,'2026-09-03 09:45:00')`,
-  `INSERT OR IGNORE INTO answers (id,question_id,author_id,body,base_score,created_at) VALUES (2,1,'grower-tom','We saw almost the same thing west of Dubbo in 2022. The useful check was spade depth: plants in the pale runs had half the root mass. A blanket urea pass looked tempting but the response was poor in the wettest strips. We mapped those separately and only treated the shoulders once they carried the spreader cleanly.',18,'2026-09-03 11:12:00')`,
-  `INSERT OR IGNORE INTO answers (id,question_id,author_id,body,base_score,created_at) VALUES (3,3,'expert-mei','Map the surface expression now, then sample by landscape position rather than on a square grid. Pair EC with chloride, pH and texture, and record depth to any perched water after rain. That will tell you whether you are seeing salt accumulation, sodicity, or both. A summer EM survey is useful only after those ground-truth samples exist.',33,'2026-09-05 01:30:00')`,
-  `INSERT OR IGNORE INTO answers (id,question_id,author_id,body,base_score,created_at) VALUES (4,2,'expert-priya','Keep the vet visit as the priority. Before they arrive, record rectal temperature, hydration, nursing behaviour and exactly which mobs and pens each calf has used. Fresh faecal samples from untreated calves are more useful than samples after medication. Use separate boots and feeding gear for the isolated pair.',27,'2026-09-05 04:05:00')`,
-  `INSERT OR IGNORE INTO comments (id,answer_id,author_id,body,created_at) VALUES (1,1,'farmer-ella','This is exactly the sequence I needed. I can split the samples by the low runs and shoulders tomorrow.','2026-09-03 10:20:00')`,
-  `INSERT OR IGNORE INTO comments (id,answer_id,author_id,body,created_at) VALUES (2,3,'grower-tom','Good point on landscape position. Our first grid blurred the seep line completely.','2026-09-05 03:11:00')`,
-];
-
-let ready: Promise<void> | null = null;
-
-export function ensureCommunityDatabase() {
-  ready ??= (async () => {
-    const database = db();
-    await database.batch(schemaStatements.map((statement) => database.prepare(statement)));
-    await database.batch(seedStatements.map((statement) => database.prepare(statement)));
-  })();
-  return ready;
 }
 
 function rows<T>(result: D1Result<T>) {
@@ -78,46 +31,48 @@ function randomHex(length: number) {
   return bytesToHex(bytes);
 }
 
-async function sha256(value: string) {
+export async function sha256(value: string) {
   return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value))));
 }
 
+// 16 MiB scrypt, OWASP N=2^14/r=8/p=5; fits the Workers isolate budget.
 export async function hashPassword(password: string, salt: string) {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", iterations: 150_000, salt: encoder.encode(salt) }, key, 256);
-  return bytesToHex(new Uint8Array(bits));
+  const result = await new Promise<Buffer>((resolve,reject)=>scrypt(password,salt,32,{N:16384,r:8,p:5,maxmem:32*1024*1024},(error,key)=>error?reject(error):resolve(key)));
+  return `scrypt-v1$${result.toString("hex")}`;
 }
-
-export function newPasswordSalt() {
-  return randomHex(16);
-}
-
+export function newPasswordSalt() { return randomHex(16); }
 export async function passwordMatches(password: string, salt: string, expected: string) {
-  const actual = await hashPassword(password, salt);
-  if (actual.length !== expected.length) return false;
-  let difference = 0;
-  for (let index = 0; index < actual.length; index += 1) difference |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
-  return difference === 0;
+  let actual: string;
+  if (expected.startsWith("scrypt-v1$")) actual = await hashPassword(password,salt);
+  else {
+    // Legacy MVP hashes remain readable locally. Production starts with a fresh DB.
+    if (!isLocal()) return false;
+    const key=await crypto.subtle.importKey("raw",encoder.encode(password),"PBKDF2",false,["deriveBits"]);
+    actual=bytesToHex(new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2",hash:"SHA-256",iterations:150000,salt:encoder.encode(salt)},key,256)));
+  }
+  const a=encoder.encode(actual),b=encoder.encode(expected);
+  return a.length===b.length && timingSafeEqual(a,b);
 }
 
 export async function currentUserId(request: Request) {
-  await ensureCommunityDatabase();
   const token = cookieValue(request, SESSION_COOKIE);
-  if (!token) return null;
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
   const id = await sha256(token);
   const session = await db().prepare("SELECT user_id FROM sessions WHERE id = ? AND expires_at > ?")
     .bind(id, new Date().toISOString()).first<{ user_id: string }>();
   return session?.user_id ?? null;
 }
 
-export async function createSession(userId: string, request: Request) {
+export async function createSession(userId: string, request: Request, expectedHash: string) {
   const token = randomHex(32);
   const id = await sha256(token);
   const expiresAt = new Date(Date.now() + SESSION_SECONDS * 1000).toISOString();
-  await db().batch([
+  const result=await db().batch([
     db().prepare("DELETE FROM sessions WHERE expires_at <= ?").bind(new Date().toISOString()),
-    db().prepare("INSERT INTO sessions (id,user_id,expires_at) VALUES (?,?,?)").bind(id, userId, expiresAt),
+    db().prepare("INSERT INTO sessions (id,user_id,expires_at) SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM accounts WHERE user_id=? AND password_hash=?)").bind(id,userId,expiresAt,userId,expectedHash),
+    db().prepare("DELETE FROM sessions WHERE user_id=? AND id<>? AND id NOT IN (SELECT id FROM sessions WHERE user_id=? AND id<>? ORDER BY created_at DESC,id DESC LIMIT 9)").bind(userId,id,userId,id),
   ]);
+  if(!result[1].meta.changes)throw new RequestError("Your credentials changed. Sign in again.",401);
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${SESSION_COOKIE}=${token}; Path=/; Max-Age=${SESSION_SECONDS}; SameSite=Lax; HttpOnly${secure}`;
 }
@@ -129,34 +84,115 @@ export async function revokeSession(request: Request) {
   return `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; HttpOnly${secure}`;
 }
 
-export async function snapshot(request: Request) {
-  await ensureCommunityDatabase();
-  const database = db();
-  const [userRows, questionRows, answerRows, commentRows, voteRows, bookmarkRows, followRows, invitationRows] = await database.batch([
-    database.prepare("SELECT * FROM users ORDER BY xp DESC"),
-    database.prepare("SELECT * FROM questions ORDER BY datetime(created_at) DESC"),
-    database.prepare("SELECT * FROM answers ORDER BY datetime(created_at) ASC"),
-    database.prepare("SELECT * FROM comments ORDER BY datetime(created_at) ASC"),
-    database.prepare("SELECT * FROM votes"),
-    database.prepare("SELECT * FROM bookmarks"),
-    database.prepare("SELECT * FROM question_follows"),
-    database.prepare("SELECT * FROM invitations"),
-  ]);
+const visibleAnswer = "a.hidden = 0 AND a.deleted = 0 AND EXISTS (SELECT 1 FROM questions q WHERE q.id = a.question_id AND q.hidden = 0)";
+const publicUser = `u.id,u.handle,u.name,u.initials,u.role,u.verified,u.state,u.town,u.bio,u.specialties,u.years,u.avatar_url,u.categories,u.service_states,u.verified_scope,u.verification_basis,u.verified_at,u.demo,
+ (SELECT COUNT(*) FROM user_follows WHERE followed_id=u.id) AS followers,
+ (SELECT COUNT(*) FROM user_follows WHERE follower_id=u.id) AS following,
+ (SELECT COUNT(*) FROM answers a WHERE a.author_id=u.id AND ${visibleAnswer}) AS answer_count,
+ (SELECT COUNT(*) FROM answers a JOIN questions q ON q.selected_answer_id=a.id WHERE a.author_id=u.id AND ${visibleAnswer}) AS best_count,
+ (SELECT COUNT(*) FROM votes v JOIN answers a ON a.id=v.answer_id WHERE a.author_id=u.id AND v.value=1 AND ${visibleAnswer}) AS likes,
+ ((SELECT COUNT(*)*10 FROM answers a WHERE a.author_id=u.id AND ${visibleAnswer}) +
+ (SELECT COUNT(*)*2 FROM votes v JOIN answers a ON a.id=v.answer_id WHERE a.author_id=u.id AND v.value=1 AND ${visibleAnswer}) +
+ (SELECT COUNT(*)*20 FROM answers a JOIN questions q ON q.selected_answer_id=a.id WHERE a.author_id=u.id AND q.author_id<>u.id AND ${visibleAnswer})) AS xp`;
 
-  return {
-    currentUserId: await currentUserId(request),
-    users: rows(userRows),
-    questions: rows(questionRows).map((question: Record<string, unknown>) => ({
-      ...question,
-      tags: JSON.parse(String(question.tags ?? "[]")),
-    })),
-    answers: rows(answerRows),
-    comments: rows(commentRows),
-    votes: rows(voteRows),
-    bookmarks: rows(bookmarkRows),
-    follows: rows(followRows),
-    invitations: rows(invitationRows),
-  };
+export async function isModerator(userId: string | null) {
+  return Boolean(userId && await db().prepare("SELECT 1 FROM users WHERE id=? AND moderator=1").bind(userId).first());
+}
+
+export async function snapshot(request: Request) {
+  const database = db();
+  const actor = await currentUserId(request);
+  const moderator = await isModerator(actor);
+  const params = new URL(request.url).searchParams;
+  const mode = params.get("view") || "home";
+  const page = Math.max(1, Math.min(100000, Math.floor(Number(params.get("page"))) || 1));
+  const query = (params.get("q") || "").trim().toLowerCase().slice(0,180);
+  const state = params.get("state") || "";
+  const category = params.get("category") || "";
+  const includeDemo = isLocal() || env.REGISTRATION_OPEN === "false";
+  const where = ["q.hidden=0"];
+  if (!includeDemo) where.push("q.author_id IN (SELECT id FROM users WHERE demo=0)");
+  const values: unknown[] = [];
+  const profile = params.get("handle") ? await database.prepare("SELECT id FROM users WHERE handle=? AND (? OR demo=0)").bind(params.get("handle"),includeDemo?1:0).first<{id:string}>() : null;
+  if (mode === "question") { where.push("q.slug=?"); values.push(params.get("slug") || ""); }
+  else if (mode === "profile") { where.push("(q.author_id=? OR q.id IN (SELECT question_id FROM answers WHERE author_id=? AND hidden=0 AND deleted=0))"); values.push(profile?.id || "", profile?.id || ""); }
+  else if (mode === "me") {
+    const tab = params.get("tab") || "questions";
+    const clause: Record<string,string> = {
+      questions: "q.author_id=?", answers: "q.id IN (SELECT question_id FROM answers WHERE author_id=? AND hidden=0 AND deleted=0)",
+      saved: "q.id IN (SELECT question_id FROM bookmarks WHERE user_id=?)", following: "q.id IN (SELECT question_id FROM question_follows WHERE user_id=?)",
+      invitations: "q.id IN (SELECT question_id FROM invitations WHERE expert_id=?)"
+    };
+    where.push(clause[tab] || "q.author_id=?"); values.push(actor || "");
+  } else {
+    if(params.get("type")==="knowledge") where.push("json_extract(q.context,'$.kind')='knowledge'");
+    if(query) { where.push("instr(lower(q.title || ' ' || q.body || ' ' || q.tags || ' ' || q.town || ' ' || q.state),?)>0"); values.push(query); }
+    if(state) { where.push("q.state=?"); values.push(state); }
+    if(category) { where.push("q.category=?"); values.push(category); }
+    if(params.get("status")==="unanswered") where.push("NOT EXISTS (SELECT 1 FROM answers a WHERE a.question_id=q.id AND a.hidden=0 AND a.deleted=0)");
+    if(params.get("status")==="expert") where.push("EXISTS (SELECT 1 FROM answers a JOIN users u ON u.id=a.author_id WHERE a.question_id=q.id AND a.hidden=0 AND a.deleted=0 AND u.verified=1 AND u.demo=0 AND u.verified_scope=q.category)");
+  }
+  const filter = where.join(" AND ");
+  const count = await database.prepare(`SELECT COUNT(*) total FROM questions q WHERE ${filter}`).bind(...values).first<{total:number}>();
+  const ordering = params.get("sort")==="answered" ? "answer_count DESC,q.created_at DESC" : params.get("sort")==="popular" ? "q.views DESC,q.created_at DESC" : "q.created_at DESC,q.id DESC";
+  const questionRows = rows(await database.prepare(`SELECT q.*,u.demo,
+    (SELECT COUNT(*) FROM answers a WHERE a.question_id=q.id AND a.hidden=0 AND a.deleted=0) AS answer_count,
+    (SELECT COUNT(*) FROM question_follows WHERE question_id=q.id) AS follow_count
+    FROM questions q JOIN users u ON u.id=q.author_id WHERE ${filter} ORDER BY ${ordering} LIMIT 12 OFFSET ?`).bind(...values,(page-1)*12).all());
+  const ids = questionRows.map(q => q.id);
+  const slots = ids.map(()=>"?").join(",") || "NULL";
+  const requestedAnswerPage=Math.max(1,Math.min(100000,Math.floor(Number(params.get("answerPage")))||1));
+  const historyAuthor=mode==="profile"?profile?.id:mode==="me"&&params.get("tab")==="answers"?actor:null;
+  const answerValues=historyAuthor?[...ids,historyAuthor]:ids;
+  const answerCte=`WITH scored AS (SELECT a.*,COALESCE((SELECT SUM(value) FROM votes WHERE answer_id=a.id),0) AS score,
+    (SELECT COUNT(*) FROM comments WHERE answer_id=a.id AND hidden=0) AS comment_count
+    FROM answers a WHERE a.question_id IN (${slots}) AND a.hidden=0 AND a.deleted=0 ${historyAuthor?"AND a.author_id=?":""}),
+    ranked AS (SELECT scored.*,ROW_NUMBER() OVER (PARTITION BY question_id ORDER BY (id=(SELECT selected_answer_id FROM questions WHERE id=scored.question_id)) DESC,score DESC,id) AS rn FROM scored)`;
+  const target=params.get("answer") && mode==="question" ? await database.prepare(`${answerCte} SELECT rn FROM ranked WHERE id=?`).bind(...answerValues,Number(params.get("answer"))||0).first<{rn:number}>() : null;
+  const answerPage=target?Math.ceil(target.rn/20):requestedAnswerPage;
+  const answerRows=rows(await database.prepare(`${answerCte} SELECT * FROM ranked WHERE ${mode==="question"?"(rn BETWEEN ? AND ?) OR rn<=2":(historyAuthor?"rn<=20":"rn<=2")} ORDER BY question_id,rn`).bind(...answerValues,...(mode==="question"?[(answerPage-1)*20+1,answerPage*20]:[])).all());
+  const answerPageIds=answerRows.filter(a=>Number(a.rn)>(answerPage-1)*20 && Number(a.rn)<=answerPage*20).map(a=>a.id);
+  const answerIds = answerRows.map(a=>a.id);
+  const answerSlots = "SELECT value FROM json_each(?)";
+  const commentAnswer=Number(params.get("commentAnswer"))||0,commentPage=Math.max(1,Math.min(100000,Math.floor(Number(params.get("commentPage")))||1));
+  const commentRows=mode==="question"?rows(await database.prepare(`WITH ranked AS (SELECT c.*,ROW_NUMBER() OVER(PARTITION BY answer_id ORDER BY id) rn FROM comments c WHERE c.answer_id IN (${answerSlots}) AND c.hidden=0) SELECT * FROM ranked WHERE (answer_id=? AND rn BETWEEN ? AND ?) OR (answer_id<>? AND rn<=20)`).bind(JSON.stringify(answerIds),commentAnswer,(commentPage-1)*20+1,commentPage*20,commentAnswer).all()):[];
+  const personWhere = [includeDemo?"1=1":"u.demo=0"]; const personValues: unknown[] = [];
+  if(query) { personWhere.push("instr(lower(u.name || ' ' || u.handle || ' ' || u.bio || ' ' || u.specialties || ' ' || u.town || ' ' || u.state),?)>0"); personValues.push(query); }
+  if(state) { personWhere.push("(u.state=? OR EXISTS (SELECT 1 FROM json_each(u.service_states) WHERE value=?))"); personValues.push(state,state); }
+  if(category) { personWhere.push(params.get("type")==="experts" ? "u.verified_scope=?" : "EXISTS (SELECT 1 FROM json_each(u.categories) WHERE value=?)"); personValues.push(category); }
+  if(mode==="question") { personWhere.push("u.verified=1 AND u.demo=0 AND u.verified_scope=?"); personValues.push(questionRows[0]?.category || ""); }
+  if(params.get("type")==="experts") personWhere.push("u.verified=1 AND u.demo=0");
+  const directoryMode=mode==="search" && ["experts","people"].includes(params.get("type") || "") || mode==="leaderboard";
+  const directoryCount=await database.prepare(`SELECT COUNT(*) total FROM users u WHERE ${personWhere.join(" AND ")}`).bind(...personValues).first<{total:number}>();
+  const directorySort=mode==="question" ? "CASE WHEN u.state=? OR EXISTS (SELECT 1 FROM json_each(u.service_states) WHERE value=?) THEN 0 ELSE 1 END, xp DESC,u.name" : "xp DESC,u.name";
+  const directoryBindings=mode==="question" ? [...personValues,questionRows[0]?.state || "",questionRows[0]?.state || ""] : personValues;
+  const directory = rows(await database.prepare(`SELECT ${publicUser} FROM users u WHERE ${personWhere.join(" AND ")} ORDER BY ${directorySort} LIMIT 24 OFFSET ?`).bind(...directoryBindings,directoryMode?(page-1)*24:0).all());
+  const references = [...new Set([actor,profile?.id,...questionRows.map(q=>q.author_id),...answerRows.map(a=>a.author_id),...commentRows.map(c=>c.author_id)].filter(Boolean))];
+  const referenceUsers = rows(await database.prepare(`SELECT ${publicUser} FROM users u WHERE u.id IN (SELECT value FROM json_each(?)) OR u.id IN (SELECT followed_id FROM user_follows WHERE follower_id=?)`).bind(JSON.stringify(references),actor || "").all());
+  const users = [...new Map([...directory,...referenceUsers].map(u=>[u.id,u])).values()].map(u=>({...u, verified:u.demo ? 0:u.verified, categories:JSON.parse(String(u.categories)),service_states:JSON.parse(String(u.service_states))}));
+  const privateQueries = actor ? await database.batch<Record<string,unknown>>([
+    database.prepare("SELECT answer_id,value FROM votes WHERE user_id=? AND answer_id IN (SELECT value FROM json_each(?))").bind(actor,JSON.stringify(answerIds)),
+    database.prepare("SELECT question_id FROM bookmarks WHERE user_id=? AND question_id IN (SELECT value FROM json_each(?))").bind(actor,JSON.stringify(ids)),
+    database.prepare("SELECT question_id FROM question_follows WHERE user_id=? AND question_id IN (SELECT value FROM json_each(?))").bind(actor,JSON.stringify(ids)),
+    database.prepare("SELECT followed_id FROM user_follows WHERE follower_id=?").bind(actor),
+    database.prepare("SELECT i.*,q.slug,q.title FROM invitations i JOIN questions q ON q.id=i.question_id WHERE (i.inviter_id=? OR i.expert_id=?) AND q.hidden=0 ORDER BY i.id DESC LIMIT 100").bind(actor,actor),
+    database.prepare("SELECT id,message,href,created_at,read_at FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 100").bind(actor),
+    database.prepare("SELECT * FROM expert_applications WHERE user_id=?").bind(actor),
+    database.prepare("SELECT id,target_type,target_id,reason,status,resolution,created_at FROM reports WHERE reporter_id=? ORDER BY id DESC LIMIT 100").bind(actor),
+  ]) : [];
+  let reports: Record<string,unknown>[] = [], applications: Record<string,unknown>[] = [], logs: Record<string,unknown>[] = [];
+  if(moderator && mode==="moderation") {
+    const result=await database.batch<Record<string,unknown>>([
+      database.prepare(`SELECT r.*,CASE r.target_type WHEN 'question' THEN (SELECT title || char(10) || body FROM questions WHERE id=r.target_id) WHEN 'answer' THEN (SELECT body FROM answers WHERE id=r.target_id) ELSE (SELECT body FROM comments WHERE id=r.target_id) END AS content,CASE r.target_type WHEN 'question' THEN (SELECT hidden FROM questions WHERE id=r.target_id) WHEN 'answer' THEN (SELECT hidden FROM answers WHERE id=r.target_id) ELSE (SELECT hidden FROM comments WHERE id=r.target_id) END AS hidden FROM reports r ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END,r.id DESC LIMIT 100`),
+      database.prepare("SELECT * FROM expert_applications ORDER BY CASE WHEN status='pending' THEN 0 ELSE 1 END,created_at DESC LIMIT 100"),
+      database.prepare("SELECT * FROM moderation_log ORDER BY id DESC LIMIT 100")
+    ]); reports=rows(result[0]); applications=rows(result[1]); logs=rows(result[2]);
+  }
+  const revisions=mode==="question"?rows(await database.prepare(`WITH ranked AS (SELECT id,answer_id,content,created_at,ROW_NUMBER() OVER(PARTITION BY answer_id ORDER BY id DESC) rn FROM answer_revisions WHERE answer_id IN (${answerSlots})) SELECT * FROM ranked WHERE rn<=10`).bind(JSON.stringify(answerIds)).all()).map(r=>({...r,content:JSON.parse(String(r.content))})):[];
+  const privateRows = (index:number) => privateQueries[index] ? rows(privateQueries[index]) : [];
+  const account=actor ? await database.prepare("SELECT email_verified_at FROM accounts WHERE user_id=?").bind(actor).first() : null;
+  return {config:{turnstileSiteKey:isLocal()?"":env.TURNSTILE_SITE_KEY,local:isLocal(),uploadsEnabled:uploadsEnabled(env),registrationOpen:env.REGISTRATION_OPEN==="true",emailEnabled:(isLocal()&&env.REGISTRATION_OPEN==="true")||Boolean(env.EMAIL && env.EMAIL_FROM)},emailVerified:Boolean(account?.email_verified_at),currentUserId:actor,isModerator:moderator,users,peopleIds:directory.map(u=>u.id),questions:questionRows.map(q=>({...q,tags:JSON.parse(String(q.tags)),context:JSON.parse(String(q.context))})),answers:answerRows,comments:commentRows,
+    answerPage,answerPages:Math.ceil(Number(questionRows[0]?.answer_count || 0)/20),answerPageIds,commentAnswer,commentPage,votes:privateRows(0),bookmarks:privateRows(1),follows:privateRows(2),userFollows:privateRows(3).map(r=>r.followed_id),invitations:privateRows(4),notifications:privateRows(5),application:privateRows(6)[0] || null,ownReports:privateRows(7),reports,applications,moderationLog:logs,revisions,total:directoryMode ? directoryCount?.total || 0 : count?.total || 0,page,pages:Math.ceil((directoryMode ? directoryCount?.total || 0 : count?.total || 0)/(directoryMode?24:12))};
 }
 
 export function database() {

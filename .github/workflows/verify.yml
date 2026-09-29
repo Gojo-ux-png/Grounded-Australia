@@ -1,0 +1,29 @@
+name: Verify Cloudflare release
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WRANGLER_LOG_PATH: .wrangler/wrangler.log
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
+      - run: pnpm test:preview
+      - run: pnpm test:preview --without-media
+      - run: pnpm test:preview --closed-registration

@@ -3,3 +3,11 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   workerd: true
+# Support both native and Rosetta Node installations on development machines.
+supportedArchitectures:
+  os:
+    - current
+  cpu:
+    - current
+    - arm64
+    - x64

@@ -1,0 +1,6 @@
+# Local development skips external email and Turnstile verification.
+# Never commit a real secret. Staging/production use Wrangler secrets.
+TURNSTILE_SECRET_KEY=
+
+# Production Supabase Storage key is stored with Wrangler secrets only.
+SUPABASE_SECRET_KEY=

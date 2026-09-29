@@ -1,16 +1,15 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
-import { headers } from "next/headers";
 import "./globals.css";
+import { siteUrl } from "./lib/runtime";
 
 const geist = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
 export async function generateMetadata(): Promise<Metadata> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  const image = `${protocol}://${host}/og.png`;
+  const origin = siteUrl();
+  const image = `${origin}/og.png`;
   return {
+    metadataBase: new URL(origin),
     title: { default: "Grounded Australia — Practical knowledge, rooted in place", template: "%s · Grounded Australia" },
     description: "Practical answers from Australian farmers, growers and verified agricultural experts.",
     openGraph: { title: "Grounded Australia", description: "Practical knowledge, rooted in place.", images: [{ url: image, width: 1536, height: 1024 }] },

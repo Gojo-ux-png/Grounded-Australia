@@ -1,0 +1,219 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "grounded-australia-local",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "assets": {
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+  "vars": {
+    "APP_ENV": "local",
+    "SITE_URL": "http://localhost:3000",
+    "EMAIL_FROM": "",
+    "TURNSTILE_SITE_KEY": "",
+    "SUPABASE_URL": "",
+    "SUPABASE_STORAGE_BUCKET": "",
+    "REGISTRATION_OPEN": "true"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "site-creator-d1",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "site-creator-r2"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "READ_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 10000,
+        "period": 60
+      }
+    },
+    {
+      "name": "AUTH_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 10000,
+        "period": 60
+      }
+    },
+    {
+      "name": "WRITE_LIMITER",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 10000,
+        "period": 60
+      }
+    },
+    {
+      "name": "UPLOAD_LIMITER",
+      "namespace_id": "1004",
+      "simple": {
+        "limit": 10000,
+        "period": 60
+      }
+    }
+  ],
+  "env": {
+    "staging": {
+      "name": "grounded-australia-staging",
+      "workers_dev": true,
+      "preview_urls": false,
+      "limits": {
+        "cpu_ms": 1000
+      },
+      "vars": {
+        "APP_ENV": "staging",
+        "SITE_URL": "https://staging.example.com",
+        "EMAIL_FROM": "noreply@example.com",
+        "TURNSTILE_SITE_KEY": "REPLACE_ME",
+        "SUPABASE_URL": "",
+        "SUPABASE_STORAGE_BUCKET": "",
+        "REGISTRATION_OPEN": "true"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "grounded-australia-staging",
+          "database_id": "REPLACE_WITH_STAGING_D1_ID",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "grounded-australia-media-staging"
+        }
+      ],
+      "send_email": [
+        {
+          "name": "EMAIL"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "READ_LIMITER",
+          "namespace_id": "1011",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          }
+        },
+        {
+          "name": "AUTH_LIMITER",
+          "namespace_id": "1012",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        },
+        {
+          "name": "WRITE_LIMITER",
+          "namespace_id": "1013",
+          "simple": {
+            "limit": 30,
+            "period": 60
+          }
+        },
+        {
+          "name": "UPLOAD_LIMITER",
+          "namespace_id": "1014",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        }
+      ],
+      "triggers": {
+        "crons": [
+          "17 3 * * *"
+        ]
+      }
+    },
+    "production": {
+      "name": "grounded-australia",
+      "workers_dev": true,
+      "preview_urls": false,
+      "vars": {
+        "APP_ENV": "production",
+        "SITE_URL": "https://grounded-australia.pathfive.workers.dev",
+        "EMAIL_FROM": "",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAEz3unj9ZHCoDjRg",
+        "SUPABASE_URL": "https://cdqmopqvkxiishjmabmz.supabase.co",
+        "SUPABASE_STORAGE_BUCKET": "grounded-australia-production",
+        "REGISTRATION_OPEN": "false"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "grounded-australia-production",
+          "database_id": "d40b9811-f6b9-4696-b3d3-9a700e86f1f5",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "r2_buckets": [],
+      "send_email": [],
+      "ratelimits": [
+        {
+          "name": "READ_LIMITER",
+          "namespace_id": "1021",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          }
+        },
+        {
+          "name": "AUTH_LIMITER",
+          "namespace_id": "1022",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        },
+        {
+          "name": "WRITE_LIMITER",
+          "namespace_id": "1023",
+          "simple": {
+            "limit": 30,
+            "period": 60
+          }
+        },
+        {
+          "name": "UPLOAD_LIMITER",
+          "namespace_id": "1024",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          }
+        }
+      ],
+      "triggers": {
+        "crons": [
+          "17 3 * * *"
+        ]
+      }
+    }
+  },
+  "account_id": "1eed1d5df5141a213c3b400caf572239"
+}
