@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {validateConfig} from '../scripts/cloudflare.mjs';
+import {challengeRequired} from '../app/lib/auth-policy.ts';
 const source=JSON.parse(await readFile('wrangler.jsonc','utf8'));
 test('release validation rejects placeholders, shared data and wrong environments',()=>{
   const placeholder=structuredClone(source);placeholder.env.production.vars.SITE_URL='https://example.com';
@@ -29,4 +30,10 @@ test('Supabase release keeps storage private by configuration and explicitly clo
  env.send_email=[{name:'EMAIL'}];assert.equal(validateConfig(config,'production'),env);
  env.vars.SUPABASE_URL='https://attacker.test';assert.throws(()=>validateConfig(config,'production'),/SUPABASE_URL/);
  env.vars.SUPABASE_URL='https://grounded-test.supabase.co';env.r2_buckets=[{binding:'MEDIA',bucket_name:'grounded-images'}];assert.throws(()=>validateConfig(config,'production'),/not both/);
+});
+
+test('password sign-in remains available when closed registration has no Turnstile widget',()=>{
+ assert.equal(challengeRequired('signIn',''),false);
+ assert.equal(challengeRequired('signIn','real-site-key'),true);
+ assert.equal(challengeRequired('signUp',''),true);
 });

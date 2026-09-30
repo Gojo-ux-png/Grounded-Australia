@@ -5,6 +5,7 @@ import { failure, limit, RequestError, verifyChallenge, registrationOpen } from 
 import { createSession, currentUserId, database, isModerator, hashPassword, newPasswordSalt, passwordMatches, revokeSession, snapshot } from "@/db/community";
 
 import { categories as CATEGORIES, states as STATES, relationships } from "@/app/lib/community-model";
+import { challengeRequired } from "@/app/lib/auth-policy";
 import { readLimited, sameOrigin } from "@/app/lib/server-input";
 
 
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
     if(["signIn","signUp","requestReset","resetPassword","verifyEmail"].includes(action)) {
       await limit(env.AUTH_LIMITER,`ip:${ip}`);
       if(body.email)await limit(env.AUTH_LIMITER,`email:${clean(body.email,180).toLowerCase()}`);
-      if(["signIn","signUp","requestReset"].includes(action))await verifyChallenge(request,body.challenge,action);
+      if(["signIn","signUp","requestReset"].includes(action) && challengeRequired(action,env.TURNSTILE_SITE_KEY))await verifyChallenge(request,body.challenge,action);
     }
     const accountResponse=await accountAction(request,body,action);
     if(accountResponse)return accountResponse;
